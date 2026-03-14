@@ -4,5 +4,13 @@
   },
   "scripts": {
     "start": "deno index.js"
+  },
+  "deploy": {
+    "org": "thaiorthotrauma",
+    "app": "pelvic-course-e-learning"
+  },
+  "tasks": {
+    "dev": "deno run --allow-net --watch index.js",
+    "tunnel": "deno run --tunnel -A index.js"
   }
 }
