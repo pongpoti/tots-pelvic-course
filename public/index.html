@@ -63,16 +63,16 @@
     .progress-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); border-radius: 3px; width: 0%; transition: width 0.5s ease; }
 
     /* ── HERO ── */
-    .hero-banner { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 60%, #1a3a8c 100%); padding: 32px 20px 0; position: relative; }
+    .hero-banner { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 60%, #1a3a8c 100%); padding: 32px 20px 0; position: relative; display: flex; flex-direction: column; align-items: center; }
     .hero-banner::before { content: ''; position: absolute; top: -60px; right: -60px; width: 300px; height: 300px; background: radial-gradient(circle, rgba(37,99,235,0.2) 0%, transparent 70%); pointer-events: none; }
-    .hero-inner { max-width: 1280px; margin: 0 auto; overflow: hidden; }
+    .hero-inner { max-width: 1280px; width: 100%; margin: 0 auto; overflow: hidden; }
     .hero-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #93c5fd; margin-bottom: 10px; }
     .hero-label-dot { width: 5px; height: 5px; background: var(--gold); border-radius: 50%; }
     .hero-title { font-family: 'Playfair Display', serif; font-size: clamp(15px, 2.5vw, 22px); color: var(--white); line-height: 1.2; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .hero-subtitle { font-size: 14px; color: rgba(147,197,253,0.6); margin-bottom: 24px; }
 
     /* ── PLAYER ── */
-    #player-section { max-width: 900px; margin: 0 auto; }
+    #player-section { max-width: 900px; width: 100%; margin: 0 auto; }
 
     #hero-placeholder { background: linear-gradient(160deg, #162348, #0d1b3e); border-radius: 12px 12px 0 0; aspect-ratio: 16/9; max-height: 56vh; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid rgba(147,197,253,0.15); border-bottom: none; position: relative; overflow: hidden; }
     #hero-placeholder::before { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(45deg, transparent, transparent 40px, rgba(255,255,255,0.01) 40px, rgba(255,255,255,0.01) 41px); }
@@ -89,6 +89,8 @@
     /* Dailymotion iframe wrapper */
     #player-wrap { display: none; border-radius: 12px 12px 0 0; overflow: hidden; border: 1px solid rgba(147,197,253,0.15); border-bottom: none; box-shadow: 0 -8px 40px rgba(13,27,62,0.3); position: relative; background: #000; aspect-ratio: 16/9; max-height: 56vh; width: 100%; }
     #player-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; display: block; }
+    /* Transparent overlay covering the DM progress bar — blocks click-seeks physically */
+    #seek-block { position: absolute; bottom: 0; left: 0; right: 0; height: 38px; z-index: 10; cursor: not-allowed; background: transparent; }
     /* ── NOW PLAYING BAR ── */
     .now-playing-bar { display: none; background: var(--navy); border-radius: 0 0 12px 12px; padding: 0 16px; height: 44px; align-items: center; gap: 10px; border: 1px solid rgba(147,197,253,0.15); border-top: 1px solid rgba(255,255,255,0.07); }
     .np-pulse { width: 6px; height: 6px; background: var(--green); border-radius: 50%; flex-shrink: 0; animation: glow 1.8s ease infinite; }
@@ -256,7 +258,10 @@
       </div>
 
       <!-- Dailymotion player — DM.player() injects its own iframe here -->
-      <div id="player-wrap"></div>
+      <div id="player-wrap">
+        <!-- Physical overlay blocking click-seeks on the DM progress bar -->
+        <div id="seek-block"></div>
+      </div>
 
       <div class="now-playing-bar" id="now-playing-bar">
         <div class="np-pulse"></div>
@@ -373,6 +378,7 @@
   let dmReady          = false;  // true after 'apiready' fires
   let pendingIdx       = null;   // index queued while player loads
   let maxReachedTime   = 0;
+  let lastKnownTime    = 0;      // current time from timeupdate event (more reliable than .currentTime property)
   let isSeeking        = false;
   let resumeCache      = null;
   let saveThrottle     = null;
@@ -550,7 +556,8 @@
       dmReady  = false;
     }
     stopSeekPoll();
-    isSeeking = false;
+    isSeeking     = false;
+    lastKnownTime = startAt;
 
     const wrap = document.getElementById('player-wrap');
 
@@ -570,7 +577,9 @@
     iframe.allow               = 'autoplay; fullscreen';
     iframe.allowFullscreen     = true;
     iframe.src                 = `https://www.dailymotion.com/embed/video/${dmId}?${params}`;
-    wrap.innerHTML             = '';   // clear previous
+    // Remove only the old iframe, keeping the seek-block overlay
+    const oldIframe = wrap.querySelector('iframe');
+    if (oldIframe) oldIframe.remove();
     wrap.appendChild(iframe);
 
     // Step 2: Attach DM.Player to the iframe for event API (seek prevention, end, pause)
@@ -582,28 +591,30 @@
 
         dmPlayer.addEventListener('apiready', () => {
           dmReady = true;
-          startSeekPoll();   // backup poll in case events are unreliable
+          startSeekPoll();
         });
 
-        // ── Instant seek prevention (event-driven) ──
-        // Fires the moment a seek is attempted — snap back immediately
-        dmPlayer.addEventListener('seeking', () => {
-          if (isSeeking || maxReachedTime === Infinity) return;
-          const t = dmPlayer.currentTime;
-          if (typeof t === 'number' && !isNaN(t) && t > maxReachedTime + 1.5) {
-            isSeeking = true;
-            dmPlayer.seek(maxReachedTime);   // DM SDK method is seek(), not seekTo()
-            showToast('You cannot skip ahead — watch to unlock.', 'error');
-            setTimeout(() => { isSeeking = false; }, 600);
+        // ── Track real current time from event data (cross-origin property is stale) ──
+        dmPlayer.addEventListener('timeupdate', (e) => {
+          if (isSeeking) return;
+          // DM SDK passes videoCurrentTime on the event object
+          const t = e?.videoCurrentTime ?? dmPlayer.currentTime;
+          if (typeof t === 'number' && !isNaN(t)) {
+            lastKnownTime = t;
+            if (t > maxReachedTime) maxReachedTime = t;
           }
         });
 
-        // ── Watermark tracking via timeupdate ──
-        dmPlayer.addEventListener('timeupdate', () => {
-          if (isSeeking) return;
-          const t = dmPlayer.currentTime;
-          if (typeof t === 'number' && !isNaN(t) && t > maxReachedTime) {
-            maxReachedTime = t;
+        // ── Instant seek prevention (event-driven) ──
+        dmPlayer.addEventListener('seeking', (e) => {
+          if (isSeeking || maxReachedTime === Infinity) return;
+          // Use seekTime from event, fallback to lastKnownTime
+          const seekTarget = e?.videoCurrentTime ?? lastKnownTime;
+          if (typeof seekTarget === 'number' && seekTarget > maxReachedTime + 1.5) {
+            isSeeking = true;
+            dmPlayer.seek(maxReachedTime);
+            showToast('You cannot skip ahead — watch to unlock.', 'error');
+            setTimeout(() => { isSeeking = false; }, 600);
           }
         });
 
@@ -617,9 +628,7 @@
         dmPlayer.addEventListener('pause', () => {
           if (isSeeking) return;
           const meta = VIDEO_META[currentVideoIdx];
-          if (meta?.dmId && typeof dmPlayer.currentTime === 'number') {
-            saveResumePosition(meta.dmId, dmPlayer.currentTime);
-          }
+          if (meta?.dmId) saveResumePosition(meta.dmId, lastKnownTime);
         });
 
         dmPlayer.addEventListener('error', (e) => {
@@ -642,32 +651,28 @@
   }
 
   /* ── Seek prevention backup poll (500ms) ──
-     Primary prevention is the 'seeking' event above.
+     Primary prevention is the 'seeking' event + physical overlay.
      This poll catches any slips that the event misses. ── */
   function startSeekPoll() {
     stopSeekPoll();
     seekPollInterval = setInterval(() => {
       if (!dmPlayer || !dmReady || isSeeking) return;
-      const t = dmPlayer.currentTime;
-      if (typeof t !== 'number' || isNaN(t)) return;
 
-      // Save resume position (throttled to every 3 s)
+      // Save resume position (throttled to every 3 s), using event-tracked time
       const meta = VIDEO_META[currentVideoIdx];
       if (meta?.dmId && !saveThrottle) {
         saveThrottle = setTimeout(() => {
-          if (meta?.dmId && dmPlayer) saveResumePosition(meta.dmId, dmPlayer.currentTime);
+          if (meta?.dmId) saveResumePosition(meta.dmId, lastKnownTime);
           saveThrottle = null;
         }, 3000);
       }
 
-      // Backup snap-back if seeking event was missed
-      if (maxReachedTime !== Infinity && t > maxReachedTime + 2) {
+      // Backup snap-back using lastKnownTime (more reliable than polling .currentTime)
+      if (maxReachedTime !== Infinity && lastKnownTime > maxReachedTime + 2) {
         isSeeking = true;
-        dmPlayer.seek(maxReachedTime);   // DM SDK method is seek()
+        dmPlayer.seek(maxReachedTime);
         showToast('You cannot skip ahead — watch to unlock.', 'error');
         setTimeout(() => { isSeeking = false; }, 600);
-      } else if (t > maxReachedTime) {
-        maxReachedTime = t;
       }
     }, 500);
   }
@@ -677,8 +682,8 @@
     if (saveThrottle) {
       clearTimeout(saveThrottle); saveThrottle = null;
       const meta = currentVideoIdx !== null ? VIDEO_META[currentVideoIdx] : null;
-      if (meta?.dmId && dmPlayer && typeof dmPlayer.currentTime === 'number') {
-        saveResumePosition(meta.dmId, dmPlayer.currentTime);
+      if (meta?.dmId && dmPlayer) {
+        saveResumePosition(meta.dmId, lastKnownTime);
       }
     }
   }
