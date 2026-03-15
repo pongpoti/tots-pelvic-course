@@ -87,10 +87,13 @@
     #coming-soon p { font-size: 14px; color: rgba(147,197,253,0.45); }
 
     /* Dailymotion iframe wrapper */
-    #player-wrap { display: none; border-radius: 12px 12px 0 0; overflow: hidden; border: 1px solid rgba(147,197,253,0.15); border-bottom: none; box-shadow: 0 -8px 40px rgba(13,27,62,0.3); position: relative; background: #000; aspect-ratio: 16/9; max-height: 56vh; width: 100%; }
+    #player-wrap { display: none; border-radius: 12px 12px 0 0; overflow: hidden; border: 1px solid rgba(147,197,253,0.15); border-bottom: none; box-shadow: 0 -8px 40px rgba(13,27,62,0.3); position: relative; background: #000; aspect-ratio: 16/9; max-height: 56vh; width: 100%; transition: border-radius 0.2s; }
     #player-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; display: block; }
-    /* Transparent overlay covering the DM progress bar — blocks click-seeks physically */
-    #seek-block { position: absolute; bottom: 0; left: 0; right: 0; height: 55px; z-index: 10; cursor: not-allowed; background: transparent; }
+    /* CSS fake-fullscreen — works on all devices including iOS */
+    #player-wrap.fake-fs { position: fixed; inset: 0; z-index: 9999; width: 100vw; height: 100vh; max-height: none; aspect-ratio: unset; border-radius: 0; border: none; box-shadow: none; margin: 0; }
+    #fs-close-btn { display: none; position: absolute; top: 12px; right: 12px; z-index: 10000; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 40px; height: 40px; color: white; cursor: pointer; align-items: center; justify-content: center; font-size: 20px; line-height: 1; }
+    #player-wrap.fake-fs #fs-close-btn { display: flex; }
+    #player-wrap.fake-fs #seek-block { height: 60px; }
     /* ── NOW PLAYING BAR ── */
     .now-playing-bar { display: none; background: var(--navy); border-radius: 0 0 12px 12px; padding: 8px 12px; min-height: 44px; align-items: center; gap: 8px; flex-wrap: wrap; border: 1px solid rgba(147,197,253,0.15); border-top: 1px solid rgba(255,255,255,0.07); }
     .np-pulse { width: 6px; height: 6px; background: var(--green); border-radius: 50%; flex-shrink: 0; animation: glow 1.8s ease infinite; }
@@ -99,6 +102,8 @@
     .np-divider { width: 1px; height: 14px; background: rgba(255,255,255,0.12); flex-shrink: 0; }
     #now-playing-title { font-size: 13px; color: rgba(255,255,255,0.75); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 
+    /* Transparent overlay covering the DM progress bar — blocks click-seeks physically */
+    #seek-block { position: absolute; bottom: 0; left: 0; right: 0; height: 55px; z-index: 10; cursor: not-allowed; background: transparent; }
     /* ── FULLSCREEN BUTTON ── */
     #fullscreen-btn { display: none; background: rgba(255,255,255,0.08); border: 1px solid rgba(147,197,253,0.2); border-radius: 6px; color: rgba(147,197,253,0.8); padding: 0 10px; height: 32px; min-width: 36px; cursor: pointer; flex-shrink: 0; transition: background 0.15s, color 0.15s; align-items: center; justify-content: center; }
     #fullscreen-btn:hover { background: rgba(147,197,253,0.15); color: #fff; }
@@ -273,6 +278,8 @@
       <div id="player-wrap">
         <!-- Physical overlay blocking click-seeks on the DM progress bar -->
         <div id="seek-block"></div>
+        <!-- Close button shown only in fake-fullscreen mode -->
+        <button id="fs-close-btn" onclick="exitFakeFullscreen()" aria-label="Exit fullscreen">✕</button>
       </div>
 
       <div class="now-playing-bar" id="now-playing-bar">
@@ -753,22 +760,55 @@
   }
 
   /* ── Fullscreen ── */
+  let isFakeFs = false;
+
   function toggleFullscreen() {
     const wrap = document.getElementById('player-wrap');
-    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    if (isFs) {
-      (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
+    const isNativeFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+    if (isFakeFs) {
+      exitFakeFullscreen(); return;
+    }
+    if (isNativeFs) {
+      (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document); return;
+    }
+
+    // Try native fullscreen first
+    const req = wrap.requestFullscreen || wrap.webkitRequestFullscreen || wrap.mozRequestFullScreen;
+    if (req) {
+      req.call(wrap).catch(() => enterFakeFullscreen()); // fall back if rejected
     } else {
-      const req = wrap.requestFullscreen || wrap.webkitRequestFullscreen || wrap.mozRequestFullScreen;
-      if (req) req.call(wrap).catch(() => {});
+      enterFakeFullscreen(); // iOS Safari: no API at all
     }
   }
 
-  // Update button icon when fullscreen state changes
+  function enterFakeFullscreen() {
+    const wrap = document.getElementById('player-wrap');
+    wrap.classList.add('fake-fs');
+    document.body.style.overflow = 'hidden';
+    isFakeFs = true;
+    updateFsIcon(true);
+  }
+
+  function exitFakeFullscreen() {
+    const wrap = document.getElementById('player-wrap');
+    wrap.classList.remove('fake-fs');
+    document.body.style.overflow = '';
+    isFakeFs = false;
+    updateFsIcon(false);
+  }
+
+  function updateFsIcon(isFs) {
+    const expand = document.getElementById('fs-icon-expand');
+    const shrink = document.getElementById('fs-icon-shrink');
+    if (expand) expand.style.display = isFs ? 'none' : '';
+    if (shrink) shrink.style.display = isFs ? ''     : 'none';
+  }
+
+  // Update button icon when native fullscreen state changes
   function onFullscreenChange() {
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    document.getElementById('fs-icon-expand').style.display = isFs ? 'none'  : '';
-    document.getElementById('fs-icon-shrink').style.display = isFs ? ''      : 'none';
+    updateFsIcon(isFs);
   }
   document.addEventListener('fullscreenchange',       onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -998,6 +1038,7 @@
 
     // Stop any active player
     stopSeekPoll();
+    if (isFakeFs) exitFakeFullscreen();
     if (dmPlayer) { try { dmPlayer.pause(); } catch(e) {} dmPlayer = null; dmReady = false; }
     currentVideoIdx = null;
     maxReachedTime  = 0;
