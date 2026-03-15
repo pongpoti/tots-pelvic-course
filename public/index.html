@@ -90,7 +90,7 @@
     #player-wrap { display: none; border-radius: 12px 12px 0 0; overflow: hidden; border: 1px solid rgba(147,197,253,0.15); border-bottom: none; box-shadow: 0 -8px 40px rgba(13,27,62,0.3); position: relative; background: #000; aspect-ratio: 16/9; max-height: 56vh; width: 100%; }
     #player-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; display: block; }
     /* Transparent overlay covering the DM progress bar — blocks click-seeks physically */
-    #seek-block { position: absolute; bottom: 0; left: 0; right: 0; height: 38px; z-index: 10; cursor: not-allowed; background: transparent; }
+    #seek-block { position: absolute; bottom: 0; left: 0; right: 0; height: 55px; z-index: 10; cursor: not-allowed; background: transparent; }
     /* ── NOW PLAYING BAR ── */
     .now-playing-bar { display: none; background: var(--navy); border-radius: 0 0 12px 12px; padding: 0 16px; height: 44px; align-items: center; gap: 10px; border: 1px solid rgba(147,197,253,0.15); border-top: 1px solid rgba(255,255,255,0.07); }
     .np-pulse { width: 6px; height: 6px; background: var(--green); border-radius: 50%; flex-shrink: 0; animation: glow 1.8s ease infinite; }
@@ -333,7 +333,6 @@
      CONFIG
   ═══════════════════════════════════════════════ */
   const OAUTH_CLIENT_ID = '689388160265-4k2pfclg7ujodrubnccg2ib68i8tfh9l.apps.googleusercontent.com';
-  const ADMIN_EMAIL     = 'pong.poti@gmail.com';
 
   /* ═══════════════════════════════════════════════
      VIDEO METADATA
@@ -450,6 +449,15 @@
     document.getElementById('grid').addEventListener('click', (e) => {
       const card = e.target.closest('.video-card');
       if (card) playVideo(parseInt(card.dataset.index, 10));
+    });
+
+    // Block keyboard seeking (arrow keys, J/L) when the DM iframe has focus
+    document.addEventListener('keydown', (e) => {
+      const seekKeys = ['ArrowLeft', 'ArrowRight', 'j', 'J', 'l', 'L'];
+      if (seekKeys.includes(e.key) && document.activeElement?.id === 'dm-iframe') {
+        e.preventDefault();
+        document.activeElement.blur();
+      }
     });
   }
 
@@ -573,14 +581,15 @@
     });
     const iframe = document.createElement('iframe');
     iframe.id                  = 'dm-iframe';
-    iframe.style.cssText       = 'width:100%;height:100%;display:block;border:none;position:absolute;inset:0;';
+    iframe.style.cssText       = 'width:100%;height:100%;display:block;border:none;position:absolute;inset:0;z-index:1;';
     iframe.allow               = 'autoplay; fullscreen';
     iframe.allowFullscreen     = true;
     iframe.src                 = `https://www.dailymotion.com/embed/video/${dmId}?${params}`;
-    // Remove only the old iframe, keeping the seek-block overlay
+    // Remove old iframe, keeping #seek-block. Insert BEFORE seek-block so it stays beneath it.
     const oldIframe = wrap.querySelector('iframe');
     if (oldIframe) oldIframe.remove();
-    wrap.appendChild(iframe);
+    const seekBlock = document.getElementById('seek-block');
+    wrap.insertBefore(iframe, seekBlock);
 
     // Step 2: Attach DM.Player to the iframe for event API (seek prevention, end, pause)
     // DM SDK may or may not be loaded yet — only attach if available.
@@ -942,7 +951,7 @@
       const available = AVAILABLE_COUNT;
       const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       try {
-        await Promise.all([ sendEmailRaw(buildCertEmail(date, available)), sendEmailRaw(buildNotifEmail(date, available)) ]);
+        await Promise.all([ sendEmailRaw(buildCertEmail(date, available)) ]);
         localStorage.setItem(emailSentKey, '1');
         status.className = 'cp-email-status sent';
         status.textContent = '✅ Certificate sent to ' + currentUser.email;
@@ -975,7 +984,7 @@
   function buildCertEmail(date, lessonCount) {
     return [
       `From: ${currentUser.email}`, `To: ${currentUser.email}`,
-      `Subject: Certificate of Completion – 4th TOTS International Pelvic Course`,
+      `Subject: Certificate of Completion : 4th TOTS International Pelvic Course`,
       `MIME-Version: 1.0`, `Content-Type: text/html; charset=UTF-8`, ``,
       `<html><body style="margin:0;padding:0;background:#f0f4ff;font-family:sans-serif;">`,
       `<div style="max-width:600px;margin:0 auto;padding:32px 16px;">`,
@@ -996,26 +1005,6 @@
       `<hr style="border:none;border-top:1px solid #dde4f0;margin:24px 0"/>`,
       `<p style="font-size:11px;color:#9caec7;">4th TOTS International Pelvic Course · Pre-course e-learning</p>`,
       `</div></div></body></html>`,
-    ].join('\r\n');
-  }
-
-  function buildNotifEmail(date, lessonCount) {
-    return [
-      `From: ${currentUser.email}`, `To: ${ADMIN_EMAIL}`,
-      `Subject: [TOTS Course] ${currentUser.name} completed all lessons`,
-      `MIME-Version: 1.0`, `Content-Type: text/html; charset=UTF-8`, ``,
-      `<html><body style="margin:0;padding:0;background:#f0f4ff;font-family:sans-serif;">`,
-      `<div style="max-width:520px;margin:0 auto;padding:32px 16px;">`,
-      `<div style="background:#0d1b3e;border-radius:10px;padding:28px 32px;color:white;">`,
-      `<h2 style="margin:0 0 16px;font-size:18px;">🎉 Course Completion Notification</h2>`,
-      `<table style="width:100%;border-collapse:collapse;font-size:14px;">`,
-      `<tr><td style="padding:6px 0;color:#93c5fd;width:90px;">Name</td><td style="padding:6px 0;font-weight:700;">${currentUser.name}</td></tr>`,
-      `<tr><td style="padding:6px 0;color:#93c5fd;">Email</td><td style="padding:6px 0;">${currentUser.email}</td></tr>`,
-      `<tr><td style="padding:6px 0;color:#93c5fd;">Lessons</td><td style="padding:6px 0;">${lessonCount} / ${lessonCount}</td></tr>`,
-      `<tr><td style="padding:6px 0;color:#93c5fd;">Date</td><td style="padding:6px 0;">${date}</td></tr>`,
-      `</table></div>`,
-      `<p style="font-size:11px;color:#9caec7;text-align:center;margin-top:16px;">4th TOTS International Pelvic Course · Pre-course e-learning</p>`,
-      `</div></body></html>`,
     ].join('\r\n');
   }
 
