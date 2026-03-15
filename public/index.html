@@ -128,6 +128,8 @@
     .cp-email-status.error { color: #fca5a5; }
     .cp-back-btn { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: rgba(255,255,255,0.7); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; font-weight: 600; padding: 12px 24px; cursor: pointer; transition: background 0.15s, color 0.15s; }
     .cp-back-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .cp-reset-btn { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 1px solid rgba(239,68,68,0.4); border-radius: 8px; color: rgba(239,68,68,0.7); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 600; padding: 10px 20px; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; margin-top: 10px; }
+    .cp-reset-btn:hover { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.7); }
 
     /* ── MAIN / GRID ── */
     main { max-width: 1280px; margin: 0 auto; padding: 32px 20px 60px; }
@@ -295,10 +297,16 @@
         </div>
       </div>
       <p class="cp-email-status" id="cp-email-status">📧 Sending your certificate…</p>
-      <button class="cp-back-btn" onclick="hideCompletionPage()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15,18 9,12 15,6"/></svg>
-        Back to lessons
-      </button>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+        <button class="cp-back-btn" onclick="hideCompletionPage()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15,18 9,12 15,6"/></svg>
+          Back to lessons
+        </button>
+        <button class="cp-reset-btn" onclick="resetCourse()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+          Reset course
+        </button>
+      </div>
     </div>
   </div>
 
@@ -931,6 +939,35 @@
   }
   function hideCompletionPage() {
     document.getElementById('completion-page').style.display = 'none';
+  }
+
+  function resetCourse() {
+    if (!confirm('Reset course progress? This will clear all completed lessons and resume positions. Your certificate has already been sent.')) return;
+
+    // Clear all progress and resume data for this user
+    completed = new Set();
+    resumeCache = null;
+    localStorage.removeItem(progressKey);
+    localStorage.removeItem(resumeKey);
+    localStorage.removeItem(emailSentKey);
+
+    // Stop any active player
+    stopSeekPoll();
+    if (dmPlayer) { try { dmPlayer.pause(); } catch(e) {} dmPlayer = null; dmReady = false; }
+    currentVideoIdx = null;
+    maxReachedTime  = 0;
+    lastKnownTime   = 0;
+
+    // Reset UI
+    hideCompletionPage();
+    showAllPlayerStates('placeholder');
+    document.getElementById('now-playing-bar').style.display = 'none';
+    document.getElementById('hero-title').textContent    = '4th TOTS International Pelvic Course';
+    document.getElementById('hero-subtitle').textContent = 'Pre-course e-learning';
+    document.getElementById('test-mode-btn').style.display = '';
+    updateProgressBar();
+    refreshCards();
+    showToast('Course reset — good luck! 🎯', 'success');
   }
 
   /* ═══════════════════════════════════════════════
